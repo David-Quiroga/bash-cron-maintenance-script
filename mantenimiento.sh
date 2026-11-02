@@ -1,35 +1,39 @@
 #!/usr/bin/env bash
 
-# ============================================
-# Script: mantenimiento.sh
-# Descripción: Crea un respaldo comprimido
-#              del directorio /var/www/html
-#              y registra información del sistema.
-# ============================================
+set -Eeuo pipefail
 
-# Variables
 FECHA=$(date +%Y-%m-%d_%H-%M)
-DIR_RESPALDO="/tmp/respaldos"
+DIR_RESPALDO="/tmp/respaldo"
 LOG_FILE="/tmp/mantenimiento.log"
-ARCHIVO_RESPALDO="${DIR_RESPALDO}/sitio_${FECHA}.tar.gz"
-DIRECTORIO_ORIGEN="/var/www/html"
+TMP_ERR="/tmp/tar_error.txt"
+RESULTADO=0
 
-# Crear el directorio de respaldos si no existe
-mkdir -p "$DIR_RESPALDO"
+manejar_errores(){
+	echo "[Alerta] El script fallo en la linea $1"
+	if [ -s "$TMP_ERR" ]; then
+		echo "Motivo por el cual falla: "
+		cat "$TMP_ERR"
+	fi
+}
 
-# Registrar el inicio del mantenimiento
-echo "=== Mantenimiento ejecutado el $FECHA ===" >> "$LOG_FILE"
-
-# Crear el respaldo comprimido
-if tar -czf "$ARCHIVO_RESPALDO" -C "$DIRECTORIO_ORIGEN" . 2>/dev/null; then
-    echo "Respaldo creado correctamente: $ARCHIVO_RESPALDO" >> "$LOG_FILE"
+if mkdir -p "$DIR_RESPALDO"; then
+	echo "La carpeta de respaldo fue creada (o ya existia) en $DIR_RESPALDO" 
 else
-    echo "ERROR: No se pudo crear el respaldo." >> "$LOG_FILE"
+	echo "[Error] La carpeta no pudo ser creada por falta de permisos"
 fi
 
-# Registrar el uso actual del disco
-echo "Uso de disco actual:" >> "$LOG_FILE"
-df -h / >> "$LOG_FILE"
+trap 'manejar_errores $LINENO' ERR
 
-# Separador entre ejecuciones
-echo "----------------------------------------" >> "$LOG_FILE"
+tar -czf "$DIR_RESPALDO/sitio_$FECHA.tar.gz" -C /var/www html 2>"$TMP_ERR" || RESULTADO=$?
+
+case $RESULTADO in
+	0)
+	  echo "[Exito] El respaldo se creo en $DIR_RESPALDO"
+	  ;;
+	1)
+	 echo "[Advertencia] Algunos archivos cambiaron mientras se leían"
+	 ;;
+	2)
+	 echo "[Error critico] No cuentas con los permisos suficientes o el directorio no existe"
+	 ;;
+esac
